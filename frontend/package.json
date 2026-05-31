@@ -1,0 +1,13 @@
+{
+  "name": "dcloud-aipan-frontend",
+  "version": "1.0.0",
+  "description": "DCloud AiPan 智能云盘前端",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "http-proxy-middleware": "^3.0.0"
+  }
+}
