@@ -1,5 +1,5 @@
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 import redis
 from datetime import datetime
 from core.config import settings
@@ -46,9 +46,11 @@ class ChatService:
 
 
     def save_chat_message(self,account_id:str,user_message:str,assistant_message:str):
-        """保存用户对话信息"""
+        """保存用户对话信息（Redis 历史 + Milvus 语义记忆）"""
         self.add_message(account_id,"user",user_message)
         self.add_message(account_id,"assistant",assistant_message)
+        # 同时存储语义记忆（失败不影响主流程）
+        self.save_semantic_memory(account_id, user_message, assistant_message)
 
 
 
@@ -113,6 +115,97 @@ class ChatService:
         
         except Exception as e:
             logger.error(f"生成摘要失败:{e}")
-            return "" 
-    
-            
+            return ""
+
+    # ═══════════════════════════════════════════════════════
+    # 语义记忆（向量化对话历史 — 增强对话上下文）
+    # ═══════════════════════════════════════════════════════
+
+    def save_semantic_memory(self, account_id: str, user_message: str, assistant_message: str) -> bool:
+        """
+        将对话记录以向量形式存入 Milvus，构建长期语义记忆
+
+        与 Redis 原始存储不同，语义记忆允许通过语义相似度搜索
+        历史对话——即使关键词不完全匹配也能找到相关记忆。
+
+        Args:
+            account_id:         用户 ID
+            user_message:       用户消息
+            assistant_message:  助手回复
+
+        Returns:
+            bool: 是否存储成功。失败不影响主流程。
+        """
+        try:
+            from services.vector_service import get_vector_service
+            vector_service = get_vector_service()
+            return vector_service.add_conversation_memory(
+                account_id=account_id,
+                user_message=user_message,
+                assistant_message=assistant_message,
+            )
+        except Exception as e:
+            logger.warning(f"保存语义记忆失败（不影响主流程）: {e}")
+            return False
+
+    def search_semantic_memory(self, account_id: str, query: str, k: int = 3) -> List[str]:
+        """
+        搜索与当前查询语义相关的历史对话记忆
+
+        在每次新对话前调用，用于补充 LLM 摘要中可能遗漏的细节。
+
+        Args:
+            account_id: 用户 ID
+            query:      当前用户查询（用于语义匹配）
+            k:          返回的记忆数量
+
+        Returns:
+            List[str]: 相关的历史对话文本。知识库不可用时返回空列表。
+        """
+        try:
+            from services.vector_service import get_vector_service
+            vector_service = get_vector_service()
+            return vector_service.search_conversation_memory(
+                account_id=account_id,
+                query=query,
+                k=k,
+            )
+        except Exception as e:
+            logger.warning(f"搜索语义记忆失败（不影响主流程）: {e}")
+            return []
+
+    async def get_enhanced_context(self, account_id: str, current_query: str) -> str:
+        """
+        获取增强后的对话上下文——摘要 + 语义记忆
+
+        组合两层上下文：
+            1. LLM 摘要（粗粒度，时间序列压缩）
+            2. 语义记忆（细粒度，语义相关性召回）
+
+        Args:
+            account_id:    用户 ID
+            current_query: 当前用户查询
+
+        Returns:
+            str: 增强后的上下文字符串，直接注入 Agent 系统提示词
+        """
+        parts = []
+
+        # ① LLM 摘要（原有逻辑，保持不变）
+        summary = await self.generate_summary(account_id)
+        if summary:
+            parts.append(f"## 历史对话摘要\n{summary}")
+
+        # ② 语义记忆（新增——从 Milvus 中召回相关历史对话）
+        semantic_memories = self.search_semantic_memory(
+            account_id=account_id,
+            query=current_query,
+            k=3,
+        )
+        if semantic_memories:
+            memories_text = "\n".join(
+                f"- {mem}" for mem in semantic_memories
+            )
+            parts.append(f"## 相关历史对话（语义匹配）\n{memories_text}")
+
+        return "\n\n".join(parts) if parts else ""

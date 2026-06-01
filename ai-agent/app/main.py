@@ -1,4 +1,4 @@
-from routers import doc, chat, pan
+from routers import doc, chat, pan, knowledge
 import uvicorn
 from fastapi import FastAPI
 from core.config import settings
@@ -38,13 +38,14 @@ logging.info("AI智能体中心API服务启动成功info")
 app.include_router(chat.router)
 app.include_router(doc.router)
 app.include_router(pan.router)
+app.include_router(knowledge.router)
 
 @app.get("/")
 async def root():
     return {
         "message": "欢迎使用AI智能体中心API",
         "version": "1.0.0",
-        "available_agents": ["chat", "doc", "pan"]
+        "available_agents": ["chat", "doc", "pan", "knowledge"]
     }
 
 # 启动命令：uvicorn app.main:app --reload

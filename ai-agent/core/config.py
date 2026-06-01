@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.7
     LLM_STREAMING: bool = True
 
+    #Milvus向量数据库配置
+    MILVUS_HOST: str = "192.168.10.40"
+    MILVUS_PORT: int = 19530
+    MILVUS_COLLECTION_NAME: str = "knowledge_base"
+    MILVUS_DIMENSION: int = 1536  # text-embedding-v2 维度
+
+    #Embedding模型配置
+    EMBEDDING_MODEL_NAME: str = "text-embedding-v2"
+
     class Config:
         env_file=".env"
         case_sensitive = True
